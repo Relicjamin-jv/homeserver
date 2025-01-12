@@ -1,0 +1,173 @@
+# From repository
+- name: Include Encrypted Vars
+  ansible.builtin.include_vars: vault.yml
+
+- name: Add helm gitea repo
+  become_user: homeserver
+  become: true
+  kubernetes.core.helm_repository:
+    name: gitea-charts
+    repo_url: "https://dl.gitea.com/charts"
+
+- name: Add helm infisical repository
+  become_user: homeserver
+  become: true
+  kubernetes.core.helm_repository:
+    name: infisical-charts
+    repo_url: "https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/" 
+
+- name: Add helm cert manager repository
+  become_user: homeserver
+  become: true
+  kubernetes.core.helm_repository:
+    name: cert-charts
+    repo_url: "https://charts.jetstack.io" 
+
+- name: Add External Secrets Operator
+  become_user: homeserver
+  become: true
+  kubernetes.core.helm_repository:
+    name: external-secrets 
+    repo_url: "https://charts.external-secrets.io"
+
+- name: Upgrade Helm Repositories 
+  become_user: homeserver
+  become: true
+  ansible.builtin.command: helm repo update
+
+- name: Deploy Cert Manager 
+  become_user: homeserver
+  become: true
+  kubernetes.core.helm:
+    name: cert 
+    chart_ref: cert-charts/cert-manager
+    release_namespace: certs 
+    kubeconfig: /home/homeserver/.kube/config
+    create_namespace: true
+    values:
+      crds:
+        enabled: true
+
+- name: Create Kubernetes Definitions Dir
+  become: true
+  ansible.builtin.command: mkdir -p /etc/kubernetes
+
+- name: Copy Cert Issuer Defintion
+  become: true
+  ansible.builtin.copy:
+    src: cluster_issuer.yaml
+    dest: /etc/kubernetes/cluster_issuer.yaml
+
+- name: Apply Cert Manager 
+  become: true
+  become_user: homeserver
+  ansible.builtin.command: kubectl apply -f /etc/kubernetes/cluster_issuer.yaml -n default 
+
+- name: Copy Infisical Secret
+  become: true
+  ansible.builtin.template:
+    src: infisical_secret.yaml.j2
+    dest: /etc/kubernetes/infisical_secret.yaml
+    owner: homeserver 
+    group: homeserver
+    mode: 0600
+
+- name: Deploy Infisical
+  become_user: homeserver
+  become: true
+  kubernetes.core.helm:
+    name: infisical
+    chart_ref: infisical-charts/infisical-standalone 
+    release_namespace: infisical
+    kubeconfig: /home/homeserver/.kube/config
+    create_namespace: true
+    values:
+      infisical:
+        image:
+          repository: infisical/infisical
+          tag: v0.102.0-postgres
+          pullPolicy: Always
+
+      ingress:
+        ingressClassName: traefik
+        nginx:
+          enabled: false
+        annotations:
+          cert-manager.io/cluster-issuer: "homeserver-issuer"
+        hostName: "{{ infisical.host }}" 
+        tls:
+          - hosts:
+            - "{{ infisical.host }}"
+            secretName: infisicaltls 
+
+
+- name: Apply Infisical Secret
+  become: true
+  become_user: homeserver
+  ansible.builtin.command: kubectl apply -f /etc/kubernetes/infisical_secret.yaml -n infisical
+
+- name: Deploy Gitea
+  become_user: homeserver
+  become: true
+  kubernetes.core.helm:
+    name: gitea
+    chart_ref: gitea-charts/gitea
+    release_namespace: gitea
+    kubeconfig: /home/homeserver/.kube/config
+    create_namespace: true
+    values:
+      redis-cluster:
+        enabled: false
+      redis:
+        enabled: true
+      postgresql:
+        enabled: true
+      postgresql-ha:
+        enabled: false
+
+      persistence:
+        enabled: true
+
+
+      ingress:
+        enabled: true
+        className: traefik
+
+        annotations:
+          cert-manager.io/cluster-issuer: "homeserver-issuer"
+
+        tls:
+          - hosts:
+            - "{{ gitea.host }}"
+            secretName: giteatls
+
+        hosts:
+          - host: "{{ gitea.host }}"
+            paths:
+            - path: /
+              pathType: Prefix
+
+      gitea:
+        admin:
+          username: "priv"
+          password: "{{ secret.gitea.password }}"
+          email: "{{ gitea.email }}"
+          passwordMode: keepUpdated
+        config:
+          service:
+            DISABLE_REGISTRATION: true
+          database:
+            DB_TYPE: postgres
+          indexer:
+            ISSUE_INDEXER_TYPE: bleve
+            REPO_INDEXER_ENABLED: true
+
+- name: Deploy Secret Manager
+  become_user: homeserver
+  become: true
+  kubernetes.core.helm:
+    name: secret-manager 
+    chart_ref: external-secrets/external-secrets 
+    release_namespace: secret-manager
+    kubeconfig: /home/homeserver/.kube/config
+    create_namespace: true

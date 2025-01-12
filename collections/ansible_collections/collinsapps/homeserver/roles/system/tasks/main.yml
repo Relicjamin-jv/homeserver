@@ -1,0 +1,186 @@
+#SPDX-License-Identifier: MIT-0
+---
+# tasks file for homeserver
+- name: Install sudo
+  raw: yum install sudo -y
+  become: true
+  changed_when: false
+
+- name: Enable Third Party Repositories
+  raw: dnf install fedora-workstation-repositories -y
+  become: true
+  changed_when: false
+
+- name: Install python
+  become: true
+  raw: yum install python python3-libdnf5 -y
+  changed_when: false
+
+- name: Make sure we have wheel user
+  become: true
+  ansible.builtin.group:
+    name: wheel
+    state: present
+
+- name: Allow 'wheel' group to have passwordless sudo
+  become: true
+  ansible.builtin.lineinfile:
+    dest: /etc/sudoers
+    state: present
+    regexp: '^wheel'
+    line: '%wheel ALL=(ALL) NOPASSWD: ALL'
+    validate: 'visudo -cf %s'
+
+- name: Create homeserver user
+  become: true
+  ansible.builtin.user:
+    name: homeserver
+    create_home: yes
+    groups: wheel
+    append: yes
+    state: present
+
+- name: Disable swap
+  become: true
+  ansible.builtin.command: swapoff -a
+  changed_when: false
+
+- name: Disable swap in fstab
+  become: true
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+    replace: '# \1'
+    backup: yes
+
+- name: Install curl
+  become: true
+  ansible.builtin.yum:
+    name: curl
+    state: present
+
+- name: Install openssl
+  become: true
+  ansible.builtin.yum:
+    name: openssl
+    state: present
+
+- name: Download Helm Installation Script
+  become: true
+  ansible.builtin.get_url:
+    url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+    dest: /tmp/get_helm.sh
+    mode: '755'
+
+- name: Run Helm Install
+  become: true
+  ansible.builtin.command: /tmp/get_helm.sh
+  args:
+    creates: /usr/local/bin/helm
+  register: helm_install_result
+  changed_when: false
+
+- name: Add /usr/local/bin to PATH
+  become: true
+  ansible.builtin.lineinfile:
+    path: ~/.bashrc
+    line: 'export PATH=$PATH:/usr/local/bin'
+  when: helm_install_result.rc == 0
+
+- name: Check if helm is installed
+  become: true
+  shell: helm version
+  register: helm_reg 
+  failed_when: helm_reg.rc > 1
+  changed_when: false
+
+- name: Get latest kubectl version
+  become: true
+  uri:
+    url: https://dl.k8s.io/release/stable.txt
+    return_content: yes
+  register: version
+
+- name: Download the latest kubectl release
+  become: true
+  uri:
+    url: https://dl.k8s.io/release/{{ version.content }}/bin/linux/amd64/kubectl
+    dest: /usr/bin/kubectl
+    status_code: 200, 304
+  register: kubectl
+
+- name: Kubectl File Permissions
+  become: true
+  file:
+    path: /usr/bin/kubectl
+    mode: "0755"
+
+- name: Check if kubectl is installed
+  become: true
+  shell: kubectl version --client
+  register: client
+  failed_when: client.rc > 1
+  changed_when: false
+
+- name: Disable firewalld
+  become: true
+  ignore_errors: true
+  ansible.builtin.systemd_service:
+    name: firewalld.service
+    enabled: false
+
+- name: Reboot the machine with all defaults
+  become: true
+  ansible.builtin.reboot:
+    reboot_timeout: 3600
+
+- name: Download K3s
+  become: true
+  ansible.builtin.get_url:
+    url: https://get.k3s.io
+    dest: /tmp/install_k3s.sh
+    mode: '0755'
+
+- name: Install K3s
+  become: true
+  ansible.builtin.command: /tmp/install_k3s.sh
+  changed_when: false
+
+- name: Create KUBECONFIG directory
+  become: true
+  ansible.builtin.command: mkdir -p /home/homeserver/.kube
+  changed_when: false
+
+- name: Create KUBECONFIG directory
+  become: true
+  ansible.builtin.command: chown homeserver:homeserver /home/homeserver/.kube
+  changed_when: false
+
+- name: Create symlink KUBECONFIG for Homeserver User
+  become: true
+  ansible.builtin.file:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: /home/homeserver/.kube/config
+    owner: homeserver
+    state: link
+
+- name: Validate that Homeserver can Talk to Cluster 
+  become: true
+  become_user: homeserver
+  ansible.builtin.command: kubectl get nodes
+  register: getnodesreg
+  until:
+    - getnodesreg.rc == 0
+
+- name: Install bash-completion
+  become: true
+  ansible.builtin.yum:
+    name: bash-completion
+    state: present
+
+- name: setup autocomplete for kubectl/helm for homeserver user
+  become: true
+  become_user: homeserver
+  ansible.builtin.shell: |
+    echo 'source <(kubectl completion bash)' >>~/.bashrc
+    echo 'source <(helm completion bash)' >>~/.bashrc
