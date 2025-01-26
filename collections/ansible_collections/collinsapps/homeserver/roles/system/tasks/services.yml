@@ -35,18 +35,18 @@
   become: true
   ansible.builtin.command: helm repo update
 
-- name: Deploy Cert Manager 
-  become_user: homeserver
-  become: true
-  kubernetes.core.helm:
-    name: cert 
-    chart_ref: cert-charts/cert-manager
-    release_namespace: certs 
-    kubeconfig: /home/homeserver/.kube/config
-    create_namespace: true
-    values:
-      crds:
-        enabled: true
+# - name: Deploy Cert Manager 
+#   become_user: homeserver
+#   become: true
+#   kubernetes.core.helm:
+#     name: cert 
+#     chart_ref: cert-charts/cert-manager
+#     release_namespace: certs 
+#     kubeconfig: /home/homeserver/.kube/config
+#     create_namespace: true
+#     values:
+#       crds:
+#         enabled: true
 
 - name: Create Kubernetes Definitions Dir
   become: true
@@ -58,11 +58,11 @@
     src: cluster_issuer.yaml
     dest: /etc/kubernetes/cluster_issuer.yaml
 
-- name: Apply Cert Manager 
-  become: true
-  become_user: homeserver
-  ansible.builtin.command: kubectl apply -f /etc/kubernetes/cluster_issuer.yaml -n default 
-
+# - name: Apply Cert Manager 
+#   become: true
+#   become_user: homeserver
+#   ansible.builtin.command: kubectl apply -f /etc/kubernetes/cluster_issuer.yaml -n default 
+#
 - name: Copy Infisical Secret
   become: true
   ansible.builtin.template:
@@ -100,7 +100,6 @@
             - "{{ infisical.host }}"
             secretName: infisicaltls 
 
-
 - name: Apply Infisical Secret
   become: true
   become_user: homeserver
@@ -128,7 +127,6 @@
       persistence:
         enabled: true
 
-
       ingress:
         enabled: true
         className: traefik
@@ -146,6 +144,13 @@
             paths:
             - path: /
               pathType: Prefix
+ 
+      service:
+        ssh:
+          type: LoadBalancer
+          port: 2222
+          clusterIP:
+          externalTrafficPolicy: Local
 
       gitea:
         admin:

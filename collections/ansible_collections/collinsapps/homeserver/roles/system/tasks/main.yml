@@ -65,6 +65,12 @@
     name: openssl
     state: present
 
+- name: Install openssl
+  become: true
+  ansible.builtin.dnf:
+    name: nfs-utils
+    state: present
+
 - name: Download Helm Installation Script
   become: true
   ansible.builtin.get_url:
