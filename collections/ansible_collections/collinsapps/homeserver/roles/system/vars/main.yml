@@ -1,7 +1,7 @@
 infisical:
-  host: infisical.collinsapps.dev
-  url: https://infisical.collinsapps.dev
+  host: infisical.collinssoft.com
+  url: https://infisical.collinssoft.com
 
 gitea:
-  host: gitea.collinsapps.dev 
+  host: gitea.collinssoft.com
   email: collincampbell97@proton.me
