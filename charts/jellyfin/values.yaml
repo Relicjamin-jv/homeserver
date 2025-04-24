@@ -1,0 +1,53 @@
+resources:
+  limits:
+    gpu.intel.com/i915: 1
+
+volumes:
+  - name: content
+    hostPath:
+      path: /mnt/main/
+
+volumeMounts:
+  - mountPath: /content
+    name: content
+    readOnly: true
+
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    cert-manager.io/cluster-issuer: "homeserver-issuer"
+  hosts:
+    - host: jellyfin.collinssoft.com
+      paths:
+      - path: /
+        pathType: Prefix
+  tls:
+    - secretName: jellyfin-tls
+      hosts:
+        - jellyfin.collinssoft.com
+
+persistence:
+  config:
+    # -- set to false to use emptyDir
+    enabled: true
+    accessMode: ReadWriteOnce
+    size: 5Gi
+    # -- Custom annotations to be added to the PVC
+    annotations: {}
+    # -- If undefined (the default) or set to null, no storageClassName spec is set, choosing the default provisioner.
+    storageClass: ''
+    ## -- Use an existing PVC for this mount
+    # existingClaim: ''
+  media:
+    # -- set to false to use emptyDir
+    enabled: false
+    accessMode: ReadWriteOnce
+    size: 25Gi
+    # -- Custom annotations to be added to the PVC
+    annotations: {}
+    # -- If undefined (the default) or set to null, no storageClassName spec is set, choosing the default provisioner.
+    storageClass: ''
+    ## -- Use an existing PVC for this mount
+    # existingClaim: ''
+
